@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect } from "react";
+import { useLocation, useParams } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { apiRequest } from "@/lib/queryClient";
-import { ArrowLeft, Upload, Check, Copy } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { ArrowLeft } from "lucide-react";
 import type { Event } from "@shared/schema";
 
 const eventFormSchema = z.object({
@@ -32,49 +31,33 @@ const eventFormSchema = z.object({
   isPaid: z.boolean(),
   price: z.string().optional(),
   capacity: z.string().optional(),
-}).refine((data) => {
-  const regCloses = new Date(data.registrationCloses);
-  const eventStarts = new Date(data.eventStarts);
-  return regCloses <= eventStarts;
-}, {
-  message: "Registration must close before or when event starts",
-  path: ["registrationCloses"],
-}).refine((data) => {
-  const eventStarts = new Date(data.eventStarts);
-  const eventEnds = new Date(data.eventEnds);
-  return eventStarts < eventEnds;
-}, {
-  message: "Event must end after it starts",
-  path: ["eventEnds"],
-}).refine((data) => {
-  if (data.isPaid && (!data.price || parseFloat(data.price) <= 0)) {
-    return false;
-  }
-  return true;
-}, {
-  message: "Price must be greater than 0 for paid events",
-  path: ["price"],
+  status: z.enum(["draft", "published"]),
 });
 
 type EventFormValues = z.infer<typeof eventFormSchema>;
 
-export default function CreateEvent() {
+export default function EditEvent() {
+  const params = useParams();
+  const eventId = params.id as string;
   const [_, navigate] = useLocation();
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [createdEvent, setCreatedEvent] = useState<Event | null>(null);
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role === "student")) {
       toast({
         title: "Access Denied",
-        description: "You don't have permission to create events",
+        description: "You don't have permission to edit events",
         variant: "destructive",
       });
       navigate("/");
     }
   }, [isAuthenticated, authLoading, user, toast, navigate]);
+
+  const { data: event, isLoading: eventLoading } = useQuery<Event>({
+    queryKey: ["/api/events", eventId],
+    enabled: !!eventId && isAuthenticated && user?.role !== "student",
+  });
 
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
@@ -91,14 +74,30 @@ export default function CreateEvent() {
       isPaid: false,
       price: "",
       capacity: "",
+      status: "draft",
     },
+    values: event
+      ? {
+          title: event.title,
+          description: event.description,
+          venue: event.venue,
+          eventType: event.eventType ?? "other",
+          bannerUrl: event.bannerUrl ?? "",
+          registrationOpens: new Date(event.registrationOpens).toISOString().slice(0, 16),
+          registrationCloses: new Date(event.registrationCloses).toISOString().slice(0, 16),
+          eventStarts: new Date(event.eventStarts).toISOString().slice(0, 16),
+          eventEnds: new Date(event.eventEnds).toISOString().slice(0, 16),
+          isPaid: !!event.isPaid,
+          price: event.price ? String(event.price) : "",
+          capacity: event.capacity ? String(event.capacity) : "",
+          status: event.status,
+        }
+      : undefined,
   });
 
-  const isPaid = form.watch("isPaid");
-
-  const createEventMutation = useMutation({
-    mutationFn: async (data: EventFormValues & { status: "draft" | "published" }) => {
-      const payload = {
+  const updateEventMutation = useMutation({
+    mutationFn: async (data: EventFormValues) => {
+      const payload: Record<string, unknown> = {
         ...data,
         registrationOpens: new Date(data.registrationOpens).toISOString(),
         registrationCloses: new Date(data.registrationCloses).toISOString(),
@@ -108,68 +107,62 @@ export default function CreateEvent() {
         capacity: data.capacity ? parseInt(data.capacity) : null,
         bannerUrl: data.bannerUrl || null,
       };
-      const response = await apiRequest("POST", "/api/admin/events", payload);
-      return response;
+      const updated = await apiRequest<Event>("PATCH", `/api/admin/events/${eventId}`, payload);
+      return updated;
     },
-    onSuccess: (data) => {
-      setCreatedEvent(data);
-      setShowSuccess(true);
-      form.reset();
+    onSuccess: () => {
+      toast({
+        title: "Event Updated",
+        description: "Your changes have been saved",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId] });
+      navigate("/admin/events");
     },
     onError: (error: Error) => {
       if (isUnauthorizedError(error)) {
-        // Handled globally by axios interceptor
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
         return;
       }
       toast({
-        title: "Failed to Create Event",
+        title: "Failed to Update Event",
         description: error.message || "Something went wrong. Please try again.",
         variant: "destructive",
       });
     },
   });
 
-  const handleSubmit = (status: "draft" | "published") => {
-    form.handleSubmit((data) => {
-      createEventMutation.mutate({ ...data, status });
-    })();
-  };
-
-  const copyEventLink = () => {
-    if (createdEvent) {
-      const url = `${window.location.origin}/events/${createdEvent.id}`;
-      navigator.clipboard.writeText(url);
-      toast({
-        title: "Link Copied!",
-        description: "Event link copied to clipboard",
-      });
-    }
-  };
-
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-4 py-8">
-        {/* Header */}
         <div className="mb-8">
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate("/admin/dashboard")}
+            onClick={() => navigate("/admin/events")}
             className="mb-4 hover-elevate"
-            data-testid="button-back-to-dashboard"
+            data-testid="button-back-to-events"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
+            Back to Manage Events
           </Button>
-          <h1 className="text-3xl font-bold mb-2">Create New Event</h1>
-          <p className="text-muted-foreground">Fill in the details to create your event</p>
+          <h1 className="text-3xl font-bold mb-2">Edit Event</h1>
+          <p className="text-muted-foreground">Update details and publish when ready</p>
         </div>
 
         <Form {...form}>
-          <form className="space-y-6">
-            {/* Section 1: Event Details */}
+          <form
+            className="space-y-6"
+            onSubmit={form.handleSubmit((data) => updateEventMutation.mutate(data))}
+          >
             <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">Event Details</h2>
               <div className="space-y-4">
                 <FormField
                   control={form.control}
@@ -178,11 +171,7 @@ export default function CreateEvent() {
                     <FormItem>
                       <FormLabel>Event Title *</FormLabel>
                       <FormControl>
-                        <Input 
-                          placeholder="e.g., Annual Tech Fest 2025" 
-                          {...field}
-                          data-testid="input-event-title"
-                        />
+                        <Input placeholder="e.g., Annual Tech Fest 2025" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -196,12 +185,7 @@ export default function CreateEvent() {
                     <FormItem>
                       <FormLabel>Description *</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          placeholder="Describe your event in detail..."
-                          className="min-h-[120px] resize-y"
-                          {...field}
-                          data-testid="input-event-description"
-                        />
+                        <Textarea placeholder="Describe your event..." className="min-h-[120px]" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -216,7 +200,7 @@ export default function CreateEvent() {
                       <FormLabel>Event Type *</FormLabel>
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
-                          <SelectTrigger data-testid="select-event-type">
+                          <SelectTrigger>
                             <SelectValue placeholder="Select event type" />
                           </SelectTrigger>
                         </FormControl>
@@ -242,18 +226,8 @@ export default function CreateEvent() {
                     <FormItem>
                       <FormLabel>Banner Image URL</FormLabel>
                       <FormControl>
-                        <div className="flex gap-2">
-                          <Input 
-                            placeholder="https://example.com/banner.jpg"
-                            {...field}
-                            data-testid="input-banner-url"
-                          />
-                          <Button type="button" variant="outline" size="icon" className="flex-shrink-0">
-                            <Upload className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        <Input placeholder="https://example.com/banner.jpg" {...field} />
                       </FormControl>
-                      <FormDescription>Recommended size: 1600x900px</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -261,9 +235,7 @@ export default function CreateEvent() {
               </div>
             </Card>
 
-            {/* Section 2: Date & Logistics */}
             <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">Date & Logistics</h2>
               <div className="space-y-4">
                 <FormField
                   control={form.control}
@@ -272,11 +244,7 @@ export default function CreateEvent() {
                     <FormItem>
                       <FormLabel>Venue *</FormLabel>
                       <FormControl>
-                        <Input 
-                          placeholder="e.g., Main Auditorium, Building A"
-                          {...field}
-                          data-testid="input-venue"
-                        />
+                        <Input placeholder="e.g., Main Auditorium" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -291,17 +259,12 @@ export default function CreateEvent() {
                       <FormItem>
                         <FormLabel>Registration Opens *</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="datetime-local"
-                            {...field}
-                            data-testid="input-registration-opens"
-                          />
+                          <Input type="datetime-local" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="registrationCloses"
@@ -309,11 +272,7 @@ export default function CreateEvent() {
                       <FormItem>
                         <FormLabel>Registration Closes *</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="datetime-local"
-                            {...field}
-                            data-testid="input-registration-closes"
-                          />
+                          <Input type="datetime-local" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -329,17 +288,12 @@ export default function CreateEvent() {
                       <FormItem>
                         <FormLabel>Event Starts *</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="datetime-local"
-                            {...field}
-                            data-testid="input-event-starts"
-                          />
+                          <Input type="datetime-local" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="eventEnds"
@@ -347,11 +301,7 @@ export default function CreateEvent() {
                       <FormItem>
                         <FormLabel>Event Ends *</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="datetime-local"
-                            {...field}
-                            data-testid="input-event-ends"
-                          />
+                          <Input type="datetime-local" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -361,9 +311,7 @@ export default function CreateEvent() {
               </div>
             </Card>
 
-            {/* Section 3: Ticketing */}
             <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">Ticketing</h2>
               <div className="space-y-4">
                 <FormField
                   control={form.control}
@@ -372,22 +320,15 @@ export default function CreateEvent() {
                     <FormItem className="flex flex-row items-center justify-between rounded-lg border border-border p-4">
                       <div className="space-y-0.5">
                         <FormLabel className="text-base">Paid Event</FormLabel>
-                        <FormDescription>
-                          Toggle this if attendees need to pay for registration
-                        </FormDescription>
                       </div>
                       <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          data-testid="switch-is-paid"
-                        />
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
                       </FormControl>
                     </FormItem>
                   )}
                 />
 
-                {isPaid && (
+                {form.watch("isPaid") && (
                   <FormField
                     control={form.control}
                     name="price"
@@ -395,12 +336,7 @@ export default function CreateEvent() {
                       <FormItem>
                         <FormLabel>Price (₹) *</FormLabel>
                         <FormControl>
-                          <Input 
-                            type="number"
-                            placeholder="100"
-                            {...field}
-                            data-testid="input-price"
-                          />
+                          <Input type="number" placeholder="100" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -415,16 +351,30 @@ export default function CreateEvent() {
                     <FormItem>
                       <FormLabel>Total Capacity</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number"
-                          placeholder="Leave empty for unlimited capacity"
-                          {...field}
-                          data-testid="input-capacity"
-                        />
+                        <Input type="number" placeholder="Leave empty for unlimited capacity" {...field} />
                       </FormControl>
-                      <FormDescription>
-                        Maximum number of attendees (optional)
-                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="draft">Draft</SelectItem>
+                          <SelectItem value="published">Published</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -432,87 +382,16 @@ export default function CreateEvent() {
               </div>
             </Card>
 
-            {/* Actions */}
             <div className="flex gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleSubmit("draft")}
-                disabled={createEventMutation.isPending}
-                className="flex-1 hover-elevate"
-                data-testid="button-save-draft"
-              >
-                Save as Draft
-              </Button>
-              <Button
-                type="button"
-                onClick={() => handleSubmit("published")}
-                disabled={createEventMutation.isPending}
-                className="flex-1 hover-elevate active-elevate-2"
-                data-testid="button-publish-event"
-              >
-                {createEventMutation.isPending ? "Publishing..." : "Publish Event"}
+              <Button type="submit" disabled={updateEventMutation.isPending} className="flex-1 hover-elevate active-elevate-2">
+                {updateEventMutation.isPending ? "Saving..." : "Save Changes"}
               </Button>
             </div>
           </form>
         </Form>
       </div>
-
-      {/* Success Dialog */}
-      <Dialog open={showSuccess} onOpenChange={setShowSuccess}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Check className="h-6 w-6 text-primary" />
-              </div>
-              Success! Your event is live.
-            </DialogTitle>
-          </DialogHeader>
-          
-          {createdEvent && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-muted">
-                <p className="text-sm font-medium mb-2">Shareable Link</p>
-                <div className="flex gap-2">
-                  <Input 
-                    value={`${window.location.origin}/events/${createdEvent.id}`}
-                    readOnly
-                    className="text-sm"
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={copyEventLink}
-                    className="flex-shrink-0"
-                    data-testid="button-copy-link"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  className="flex-1 hover-elevate"
-                  onClick={() => navigate(`/events/${createdEvent.id}`)}
-                  data-testid="button-view-event"
-                >
-                  View Event
-                </Button>
-                <Button
-                  className="flex-1 hover-elevate active-elevate-2"
-                  onClick={() => navigate("/admin/events")}
-                  data-testid="button-manage-events"
-                >
-                  Manage Events
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
+
+

@@ -39,6 +39,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  passwordHash: varchar("password_hash", { length: 255 }),
   phone: varchar("phone", { length: 15 }),
   branch: varchar("branch", { length: 50 }),
   year: varchar("year", { length: 10 }),
@@ -85,7 +86,10 @@ export const events = pgTable("events", {
   status: eventStatusEnum("status").default("draft").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_events_organizer").on(table.organizerId),
+  index("idx_events_status_starts").on(table.status, table.eventStarts),
+]);
 
 export const insertEventSchema = createInsertSchema(events, {
   title: z.string().min(1).max(100),
@@ -118,7 +122,10 @@ export const registrations = pgTable("registrations", {
   paymentId: varchar("payment_id", { length: 100 }),
   qrCodeUrl: varchar("qr_code_url", { length: 500 }),
   registeredAt: timestamp("registered_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_regs_event").on(table.eventId),
+  index("idx_regs_user").on(table.userId),
+]);
 
 export const insertRegistrationSchema = createInsertSchema(registrations, {
   name: z.string().min(1).max(100),

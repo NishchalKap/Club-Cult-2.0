@@ -22,7 +22,7 @@ interface TicketWithEvent extends Registration {
 export default function MyTickets() {
   const [_, navigate] = useLocation();
   const { toast } = useToast();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, loginWithRedirect } = useAuth();
   const [selectedTicket, setSelectedTicket] = useState<TicketWithEvent | null>(null);
 
   useEffect(() => {
@@ -33,10 +33,10 @@ export default function MyTickets() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        loginWithRedirect();
       }, 500);
     }
-  }, [isAuthenticated, authLoading, toast]);
+  }, [isAuthenticated, authLoading, toast, loginWithRedirect]);
 
   const { data: tickets = [], isLoading } = useQuery<TicketWithEvent[]>({
     queryKey: ["/api/users/tickets"],

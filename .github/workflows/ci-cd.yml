@@ -1,0 +1,28 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ "main", "staging" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run check
+      - name: Build
+        run: npm run build
+      - name: Run migrations (stub)
+        run: npm run db:push
+      - name: Deploy (stub)
+        run: echo "Deploy step goes here"
+
+

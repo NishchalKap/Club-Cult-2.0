@@ -53,14 +53,7 @@ export default function ManageEvents() {
     },
     onError: (error: Error) => {
       if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
+        // Handled globally by axios interceptor
         return;
       }
       toast({

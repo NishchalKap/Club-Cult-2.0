@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Calendar, Users, Sparkles, TrendingUp } from "lucide-react";
+import { useState } from "react";
+import { AuthModal } from "@/components/AuthModal";
 
 export default function Landing() {
+  const [authOpen, setAuthOpen] = useState(false);
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
@@ -17,11 +20,11 @@ export default function Landing() {
               <span className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">Club Cult</span>
             </div>
             <Button 
-              asChild 
               data-testid="button-login"
               className="hover-elevate active-elevate-2"
+              onClick={() => setAuthOpen(true)}
             >
-              <a href="/api/login">Sign In</a>
+              Sign In
             </Button>
           </div>
         </header>
@@ -40,11 +43,11 @@ export default function Landing() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button 
                 size="lg" 
-                asChild
                 className="h-12 px-8 text-base font-semibold hover-elevate active-elevate-2"
                 data-testid="button-get-started"
+                onClick={() => setAuthOpen(true)}
               >
-                <a href="/api/login">Get Started</a>
+                Get Started
               </Button>
               <Button 
                 size="lg" 
@@ -120,11 +123,11 @@ export default function Landing() {
           </p>
           <Button 
             size="lg" 
-            asChild
             className="h-12 px-8 text-base font-semibold hover-elevate active-elevate-2"
             data-testid="button-join-now"
+            onClick={() => setAuthOpen(true)}
           >
-            <a href="/api/login">Join Now - It's Free</a>
+            Join Now - It's Free
           </Button>
         </div>
       </div>
@@ -145,6 +148,7 @@ export default function Landing() {
           </div>
         </div>
       </footer>
+      <AuthModal open={authOpen} onOpenChange={setAuthOpen} />
     </div>
   );
 }

@@ -1,0 +1,19 @@
+{
+  // Use the workspace TypeScript version (prevents editor/TS version mismatch)
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // Let TS handle type checking; disable built-in JS validation to reduce false positives
+  "typescript.validate.enable": true,
+  "javascript.validate.enable": false,
+
+  // Enable ESLint fixes on save if ESLint is used in the project
+  // (Leave disabled here to avoid editor schema warnings; enable in your personal settings if desired)
+
+  // Improve editor performance by excluding large folders
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true
+  }
+}

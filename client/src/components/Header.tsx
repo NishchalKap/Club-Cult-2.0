@@ -4,10 +4,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { Calendar, Ticket, LayoutDashboard, LogOut, User, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { AuthModal } from "@/components/AuthModal";
 
 export function Header() {
   const [location, navigate] = useLocation();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, refreshAuth } = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
 
   const isAdmin = user?.role === "club_admin" || user?.role === "super_admin";
 
@@ -114,7 +117,11 @@ export function Header() {
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
-                  onClick={() => window.location.href = "/api/logout"}
+                  onClick={() => {
+                    localStorage.removeItem("auth_token");
+                    refreshAuth();
+                    navigate("/");
+                  }}
                   data-testid="menu-logout"
                 >
                   <LogOut className="h-4 w-4 mr-2" />
@@ -123,13 +130,16 @@ export function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button 
-              asChild
-              className="hover-elevate active-elevate-2"
-              data-testid="button-header-login"
-            >
-              <a href="/api/login">Sign In</a>
-            </Button>
+            <>
+              <Button 
+                className="hover-elevate active-elevate-2"
+                data-testid="button-header-login"
+                onClick={() => setAuthOpen(true)}
+              >
+                Sign In
+              </Button>
+              <AuthModal open={authOpen} onOpenChange={(o) => { setAuthOpen(o); if (!o) refreshAuth(); }} />
+            </>
           )}
         </div>
       </div>

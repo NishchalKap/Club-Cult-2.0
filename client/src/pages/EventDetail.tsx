@@ -35,7 +35,7 @@ export default function EventDetail() {
   const params = useParams();
   const [_, navigate] = useLocation();
   const { toast } = useToast();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, loginWithRedirect } = useAuth();
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [registrationData, setRegistrationData] = useState<Registration | null>(null);
@@ -83,14 +83,7 @@ export default function EventDetail() {
     },
     onError: (error: Error) => {
       if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
+        // Handled globally by axios interceptor
         return;
       }
       toast({
@@ -108,7 +101,7 @@ export default function EventDetail() {
         description: "Please log in to register for events",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        loginWithRedirect();
       }, 500);
       return;
     }
@@ -172,6 +165,7 @@ export default function EventDetail() {
             <img 
               src={event.bannerUrl} 
               alt={event.title}
+              loading="lazy"
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />

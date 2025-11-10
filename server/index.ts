@@ -1,8 +1,51 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { setupVite, serveStatic } from "./vite";
+import Sentry from '@sentry/node';
+import { logger, log } from './logger';
+import helmet from 'helmet';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { RateLimiterMemory } from 'rate-limiter-flexible';
 
 const app = express();
+
+// Initialize Sentry (if configured) BEFORE other middlewares
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'production',
+  });
+  log('Sentry initialized', 'sentry');
+}
+
+// Security middlewares
+app.use(helmet());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true,
+}));
+
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use('/api/', apiLimiter);
+
+// Stricter rate limit for auth endpoints
+const authLimiter = new RateLimiterMemory({
+  points: 5, // 5 attempts
+  duration: 60 * 60, // per hour
+});
+app.use('/api/auth/', async (req, res, next) => {
+  try {
+    await authLimiter.consume(req.ip as string);
+    next();
+  } catch {
+    res.status(429).json({ message: 'Too many attempts, please try again later' });
+  }
+});
 
 declare module 'http' {
   interface IncomingMessage {
@@ -49,12 +92,22 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Error handling middleware
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    // Capture with Sentry if enabled
+    if (process.env.SENTRY_DSN) {
+      try {
+        Sentry.captureException(err);
+      } catch (e) {
+        logger.error('Failed to capture exception in Sentry');
+      }
+    }
+
+    logger.error({ err }, message);
     res.status(status).json({ message });
-    throw err;
   });
 
   // importantly only setup vite in development and after
@@ -76,6 +129,6 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    logger.info(`serving on port ${port}`);
   });
 })();

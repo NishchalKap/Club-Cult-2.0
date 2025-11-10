@@ -5,34 +5,49 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { Header } from "@/components/Header";
-import Landing from "@/pages/Landing";
-import EventsHome from "@/pages/EventsHome";
-import EventDetail from "@/pages/EventDetail";
-import MyTickets from "@/pages/MyTickets";
-import AdminDashboard from "@/pages/AdminDashboard";
-import CreateEvent from "@/pages/CreateEvent";
-import ManageEvents from "@/pages/ManageEvents";
-import NotFound from "@/pages/not-found";
+import { lazy, Suspense } from "react";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+const Landing = lazy(() => import("@/pages/Landing"));
+const EventsHome = lazy(() => import("@/pages/EventsHome"));
+const EventDetail = lazy(() => import("@/pages/EventDetail"));
+const MyTickets = lazy(() => import("@/pages/MyTickets"));
+const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
+const CreateEvent = lazy(() => import("@/pages/CreateEvent"));
+const ManageEvents = lazy(() => import("@/pages/ManageEvents"));
+const EditEvent = lazy(() => import("@/pages/EditEvent"));
+const EventRegistrations = lazy(() => import("@/pages/EventRegistrations"));
+const NotFound = lazy(() => import("@/pages/not-found"));
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const isAdmin = user?.role === "club_admin" || user?.role === "super_admin";
 
   return (
-    <Switch>
-      {isLoading || !isAuthenticated ? (
-        <Route path="/" component={Landing} />
-      ) : (
-        <>
-          <Route path="/" component={EventsHome} />
-          <Route path="/events/:id" component={EventDetail} />
-          <Route path="/tickets" component={MyTickets} />
-          <Route path="/admin/dashboard" component={AdminDashboard} />
-          <Route path="/admin/events" component={ManageEvents} />
-          <Route path="/admin/events/create" component={CreateEvent} />
-        </>
-      )}
-      <Route component={NotFound} />
-    </Switch>
+    <ErrorBoundary>
+      <Suspense fallback={<div className="p-6">Loading...</div>}>
+        <Switch>
+          {isLoading || !isAuthenticated ? (
+            <Route path="/" component={Landing} />
+          ) : (
+            <>
+              <Route path="/" component={EventsHome} />
+              <Route path="/events/:id" component={EventDetail} />
+              <Route path="/tickets" component={MyTickets} />
+              {isAdmin && (
+                <>
+                  <Route path="/admin/dashboard" component={AdminDashboard} />
+                  <Route path="/admin/events" component={ManageEvents} />
+                  <Route path="/admin/events/create" component={CreateEvent} />
+                  <Route path="/admin/events/:id/edit" component={EditEvent} />
+                  <Route path="/admin/events/:id/registrations" component={EventRegistrations} />
+                </>
+              )}
+            </>
+          )}
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
